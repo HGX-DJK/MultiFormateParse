@@ -27,12 +27,38 @@ export async function parseExcel<T = any>(
     dateNF = 'yyyy-mm-dd hh:mm:ss',
     defval = null,
     skipEmpty = true,
+    preview,
+    transformHeader,
+    transform,
+    trim = true,
     fileName: hintFileName
   } = options;
 
   const bytes = await toUint8Array(input);
   const inputInfo = getInputInfo(input);
   const fileName = hintFileName || inputInfo.fileName;
+
+  // 空文件防护
+  if (bytes.length === 0) {
+    const emptyMeta = {
+      type: 'excel' as const,
+      fileName,
+      fileSize: 0,
+      rowCount: 0,
+      columns: [],
+      sheetNames: []
+    };
+    return {
+      rows: [] as T[],
+      data: [] as T[],
+      columns: [],
+      total: 0,
+      type: 'excel',
+      sheets: {},
+      meta: emptyMeta,
+      raw: bytes
+    };
+  }
 
   // 读取工作簿
   const workbook = XLSX.read(bytes, {
@@ -84,11 +110,40 @@ export async function parseExcel<T = any>(
   }
 
   // 提取主数据行
-  let rows: any[];
-  if (sheet === 'all') {
-    rows = sheets[currentSheetName] || [];
-  } else {
-    rows = sheets[currentSheetName] || [];
+  let rows: any[] = sheets[currentSheetName] || [];
+
+  // 应用 transformHeader 对列名进行转换
+  if (header !== false && (typeof transformHeader === 'function' || trim)) {
+    rows = rows.map((row) => {
+      if (typeof row === 'object' && row !== null && !Array.isArray(row)) {
+        const newObj: Record<string, any> = {};
+        for (const [key, val] of Object.entries(row)) {
+          let newKey = trim ? key.trim() : key;
+          if (typeof transformHeader === 'function') {
+            newKey = transformHeader(newKey, 0);
+          }
+          newObj[newKey] = val;
+        }
+        return newObj;
+      }
+      return row;
+    });
+  }
+
+  // 应用单元格值转换 transform
+  if (typeof transform === 'function') {
+    rows = rows.map((row) => {
+      if (typeof row === 'object' && row !== null && !Array.isArray(row)) {
+        const newObj: Record<string, any> = {};
+        for (const [key, val] of Object.entries(row)) {
+          newObj[key] = transform(val, key);
+        }
+        return newObj;
+      } else if (Array.isArray(row)) {
+        return row.map((val, idx) => transform(val, idx));
+      }
+      return row;
+    });
   }
 
   // 提取列名
@@ -99,11 +154,19 @@ export async function parseExcel<T = any>(
     columns = Object.keys(rows[0]);
   }
 
+  const fullCount = rows.length;
+
+  // 支持 preview 截取行数
+  if (typeof preview === 'number' && preview > 0 && preview < rows.length) {
+    rows = rows.slice(0, preview);
+  }
+
   const meta = {
     type: 'excel' as const,
     fileName,
     fileSize: inputInfo.fileSize ?? bytes.byteLength,
     rowCount: rows.length,
+    totalRows: fullCount,
     columns,
     sheetNames,
     currentSheet: currentSheetName

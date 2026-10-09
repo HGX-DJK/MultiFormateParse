@@ -121,8 +121,20 @@ export async function detectFileType(
       return 'excel';
     }
 
-    // String heuristics for CSV vs plain text
+    // String heuristics for JSON vs CSV vs plain text
     const textPreview = new TextDecoder('utf-8', { fatal: false }).decode(bytes.subarray(0, previewLen));
+    const trimmed = textPreview.trim();
+
+    if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
+      try {
+        const fullText = typeof input === 'string' ? input.trim() : trimmed;
+        JSON.parse(fullText);
+        return 'json';
+      } catch {
+        // Not valid JSON, continue
+      }
+    }
+
     if (isLikelyCsv(textPreview)) {
       return 'csv';
     }

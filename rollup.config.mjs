@@ -4,6 +4,7 @@ import commonjs from '@rollup/plugin-commonjs';
 import typescript from '@rollup/plugin-typescript';
 import json from '@rollup/plugin-json';
 import dts from 'rollup-plugin-dts';
+import terser from '@rollup/plugin-terser';
 
 const npmExternal = ['xlsx', 'papaparse', 'fs', 'path'];
 
@@ -38,7 +39,7 @@ export default defineConfig([
     ]
   },
 
-  // 2. Browser Standalone All-In-One Bundle (零外部依赖，直接引入即可使用)
+  // 2. Browser Standalone All-In-One Bundle (包含未压缩版与 Terser 极速压缩版)
   {
     input: 'src/index.ts',
     output: [
@@ -48,6 +49,14 @@ export default defineConfig([
         name: 'MultiFormatParser',
         exports: 'named',
         sourcemap: true
+      },
+      {
+        file: 'dist/index.global.min.js',
+        format: 'iife',
+        name: 'MultiFormatParser',
+        exports: 'named',
+        sourcemap: true,
+        plugins: [terser()]
       }
     ],
     external: ['fs', 'path'],

@@ -13,12 +13,36 @@ export async function parseText<T = any>(
     encoding = 'utf-8',
     trim = true,
     skipEmpty = true,
+    preview,
+    transform,
     fileName: hintFileName
   } = options;
 
   const rawText = await toText(input, encoding);
   const inputInfo = getInputInfo(input);
   const fileName = hintFileName || inputInfo.fileName;
+
+  // 空文本防护
+  if (!rawText || rawText.trim() === '') {
+    const emptyMeta = {
+      type: (textMode === 'json' ? 'json' : 'text') as 'json' | 'text',
+      fileName,
+      fileSize: 0,
+      rowCount: 0,
+      columns: [],
+      textMode
+    };
+    return {
+      rows: [] as T[],
+      data: (textMode === 'lines' ? [] : textMode === 'key-value' ? {} : '') as any,
+      columns: [],
+      total: 0,
+      type: emptyMeta.type,
+      text: '',
+      meta: emptyMeta,
+      raw: rawText
+    };
+  }
 
   let rows: any[] = [];
   let dataAlias: any;
@@ -39,16 +63,25 @@ export async function parseText<T = any>(
       const trimmed = rawText.trim();
       const parsedJson = JSON.parse(trimmed);
       dataAlias = parsedJson;
+
       if (Array.isArray(parsedJson)) {
         rows = parsedJson;
-        if (parsedJson.length > 0 && typeof parsedJson[0] === 'object' && parsedJson[0] !== null) {
-          columns = Object.keys(parsedJson[0]);
-        }
       } else if (typeof parsedJson === 'object' && parsedJson !== null) {
-        rows = [parsedJson];
-        columns = Object.keys(parsedJson);
+        // 智能解包常用列表字段 (data, items, records, rows, list)
+        const commonListKeys = ['data', 'items', 'records', 'rows', 'list', 'results'];
+        const listKey = commonListKeys.find((k) => Array.isArray(parsedJson[k]));
+        if (listKey) {
+          rows = parsedJson[listKey];
+        } else {
+          rows = [parsedJson];
+        }
       } else {
         rows = [parsedJson];
+      }
+
+      // 提取列名
+      if (rows.length > 0 && typeof rows[0] === 'object' && rows[0] !== null) {
+        columns = Object.keys(rows[0]);
       }
       break;
     }
@@ -94,6 +127,16 @@ export async function parseText<T = any>(
       columns = [];
       break;
     }
+  }
+
+  // 单元格/行值转换
+  if (typeof transform === 'function') {
+    rows = rows.map((r, idx) => transform(r, idx));
+  }
+
+  // 支持 preview
+  if (typeof preview === 'number' && preview > 0 && preview < rows.length) {
+    rows = rows.slice(0, preview);
   }
 
   const meta = {

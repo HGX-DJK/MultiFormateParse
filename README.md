@@ -68,12 +68,14 @@ async function handleFileChange(event: Event) {
 }
 ```
 
-### 2. 原生 HTML 单脚本直接引入（零外部依赖）
+### 2. 原生 HTML / CDN 单脚本直接引入（零外部依赖）
 
-也可以直接通过 `<script>` 标签引入打包好的单文件产物，内部已完整包含所有解析引擎，无需额外引入 xlsx 或 papaparse：
+支持直接通过 CDN 或本地 `<script>` 标签引入（仅 ~100KB Gzip，内含完整解析内核）：
 
 ```html
-<script src="./dist/index.global.js"></script>
+<!-- 通过 CDN 极速加载 -->
+<script src="https://unpkg.com/multi-format-parser"></script>
+
 <script>
   // 全局变量 MultiFormatParser 开箱即用
   const { rows, columns } = await MultiFormatParser.parse(file);
@@ -82,19 +84,21 @@ async function handleFileChange(event: Event) {
 
 ---
 
-### 3. Node.js 服务端读取
+### 3. Node.js 本地读取或远程 URL 下载解析
 
-支持直接传入本地文件路径、Buffer 或 ArrayBuffer：
+支持直接传入本地文件路径、远程 HTTP/HTTPS URL、Base64 Data URL、Buffer 或 Stream：
 
 ```typescript
 import { parse } from 'multi-format-parser';
 
-// 直接传入文件路径
-const result = await parse('./uploads/data.xlsx');
-// 或者
-const csvResult = await parse('./uploads/users.csv');
+// 1. 本地文件路径
+const localRes = await parse('./uploads/data.xlsx');
 
-console.log(result.rows);
+// 2. 远程网络 URL（自动下载并解析）
+const remoteRes = await parse('https://example.com/reports/2026.csv');
+
+// 3. Base64 Data URL
+const base64Res = await parse('data:text/csv;base64,bmFtZSxhZ2UKQWxpY2UsMzA=');
 ```
 
 ---
@@ -144,6 +148,9 @@ const result = await parse(file, {
 | `textMode` | `'lines' \| 'raw' \| 'key-value' \| 'json'` | `'lines'` | *(Text)* 文本处理模式 |
 | `encoding` | `string` | `'utf-8'` | 字符编码 |
 | `type` | `'auto' \| 'excel' \| 'csv' \| 'text' \| 'json'` | `'auto'` | 强制指定文件类型，默认自动探测 |
+| `preview` | `number` | - | 快速预览：只解析并返回前 N 行数据（大文件提速神器） |
+| `transformHeader`| `(header: string, index: number) => string` | - | 转换/清洗表头列名（Excel 与 CSV 均支持） |
+| `transform` | `(value: any, field: string \| number) => any` | - | 转换/清洗每个单元格数值 |
 | `fileName` | `string` | - | 传入二进制 ArrayBuffer / Buffer 时，可用于辅助推断文件格式 |
 
 ---
