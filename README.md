@@ -252,6 +252,25 @@ await parse(largeCsv, {
 });
 ```
 
+### 场景 5：PapaParse 经典回调风格 (`complete` / `error` / `step`)
+如果你习惯了 PapaParse 的经典回调语法，可以直接无缝迁移；**并且不仅适用于 CSV，连 Excel (.xlsx) 和 JSON 也完全支持该语法**：
+
+```typescript
+// 经典 PapaParse 风格，无需改写原有回调逻辑
+parse(file, {
+  header: true,
+  skipEmptyLines: true, // 兼容 PapaParse 的 skipEmptyLines 命名
+  complete: (results, file) => {
+    console.log('解析完成:', results.data); // data 与 rows 均可访问
+    console.log('表头列名:', results.columns);
+    console.log('总行数:', results.total);
+  },
+  error: (err, file) => {
+    console.error('解析失败:', err);
+  }
+});
+```
+
 ---
 
 ## 🛠️ 构建与测试

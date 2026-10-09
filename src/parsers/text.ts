@@ -173,7 +173,7 @@ export async function parseText<T = any>(
     errors: validationRes.errors.length > 0 ? validationRes.errors : undefined
   };
 
-  return {
+  const result: ParseResult<T> = {
     rows: rows as T[],
     data: dataAlias as T[],
     columns,
@@ -186,4 +186,14 @@ export async function parseText<T = any>(
     meta,
     raw: rawText
   };
+
+  if (typeof options.complete === 'function') {
+    try {
+      options.complete(result, input);
+    } catch (cbErr) {
+      console.error('Error in complete callback:', cbErr);
+    }
+  }
+
+  return result;
 }

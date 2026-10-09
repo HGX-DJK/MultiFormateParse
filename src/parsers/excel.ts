@@ -243,7 +243,7 @@ export async function parseExcel<T = any>(
     errors: validationRes.errors.length > 0 ? validationRes.errors : undefined
   };
 
-  return {
+  const result: ParseResult<T> = {
     rows: rows as T[],
     data: rows as T[],
     columns,
@@ -258,4 +258,14 @@ export async function parseExcel<T = any>(
     meta,
     raw: bytes
   };
+
+  if (typeof options.complete === 'function') {
+    try {
+      options.complete(result, input);
+    } catch (cbErr) {
+      console.error('Error in complete callback:', cbErr);
+    }
+  }
+
+  return result;
 }

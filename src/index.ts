@@ -40,41 +40,81 @@ export async function parse<T = any>(
   input: FileInput,
   options: ParseOptions = {}
 ): Promise<ParseResult<T>> {
-  const { type = 'auto', fileName, mimeType, ...restOptions } = options;
+  const {
+    type = 'auto',
+    fileName,
+    mimeType,
+    complete,
+    error,
+    skipEmptyLines,
+    step,
+    ...restOptions
+  } = options;
 
-  let resolvedType: FileType;
-  if (type !== 'auto') {
-    resolvedType = type;
-  } else {
-    resolvedType = await detectFileType(input, fileName, mimeType);
+  const effectiveSkipEmpty = options.skipEmpty ?? skipEmptyLines ?? true;
+  const effectiveOnRow = options.onRow ?? step;
+
+  const mergedOptions: ParseOptions = {
+    ...restOptions,
+    fileName,
+    skipEmpty: effectiveSkipEmpty,
+    onRow: effectiveOnRow
+  };
+
+  try {
+    let resolvedType: FileType;
+    if (type !== 'auto') {
+      resolvedType = type;
+    } else {
+      resolvedType = await detectFileType(input, fileName, mimeType);
+    }
+
+    let result: ParseResult<T>;
+
+    switch (resolvedType) {
+      case 'excel':
+        result = await parseExcel<T>(input, mergedOptions);
+        break;
+
+      case 'csv':
+        result = await parseCsv<T>(input, mergedOptions);
+        break;
+
+      case 'json':
+        result = await parseText<T>(input, { ...mergedOptions, textMode: 'json' });
+        break;
+
+      case 'text':
+      default:
+        result = await parseText<T>(input, mergedOptions);
+        break;
+    }
+
+    if (fileName && !result.meta.fileName) {
+      result.meta.fileName = fileName;
+    }
+
+    // 触发 PapaParse 兼容风格的 complete(results, file) 回调
+    if (typeof complete === 'function') {
+      try {
+        complete(result, input);
+      } catch (cbErr) {
+        console.error('Error in complete callback:', cbErr);
+      }
+    }
+
+    return result;
+  } catch (err: any) {
+    // 触发 PapaParse 兼容风格的 error(err, file) 回调
+    if (typeof error === 'function') {
+      try {
+        error(err, input);
+      } catch (cbErr) {
+        console.error('Error in error callback:', cbErr);
+      }
+    }
+    throw err;
   }
-
-  let result: ParseResult<T>;
-
-  switch (resolvedType) {
-    case 'excel':
-      result = await parseExcel<T>(input, { ...restOptions, fileName });
-      break;
-
-    case 'csv':
-      result = await parseCsv<T>(input, { ...restOptions, fileName });
-      break;
-
-    case 'json':
-      result = await parseText<T>(input, { ...restOptions, textMode: 'json', fileName });
-      break;
-
-    case 'text':
-    default:
-      result = await parseText<T>(input, { ...restOptions, fileName });
-      break;
-  }
-
-  if (fileName && !result.meta.fileName) {
-    result.meta.fileName = fileName;
-  }
-
-  return result;
 }
 
 /**

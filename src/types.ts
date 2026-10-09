@@ -167,6 +167,11 @@ export interface ParseOptions {
   skipEmpty?: boolean;
 
   /**
+   * PapaParse 兼容选项：是否跳过空行（等同于 skipEmpty）
+   */
+  skipEmptyLines?: boolean;
+
+  /**
    * 是否自动去除前后空白字符
    * @default true
    */
@@ -227,6 +232,25 @@ export interface ParseOptions {
    * 逐行处理回调，若返回 false 则提前中止后续解析
    */
   onRow?: (row: any, index: number) => void | boolean;
+
+  /**
+   * PapaParse 兼容选项：逐行处理回调（等同于 onRow）
+   */
+  step?: (row: any, index: number) => void | boolean;
+
+  /**
+   * PapaParse 兼容回调：解析完成时调用
+   * @param results 统一解析结果对象（同时包含 rows 与 data、columns、total 等）
+   * @param file 原始输入源
+   */
+  complete?: (results: ParseResult<any>, file?: FileInput) => void;
+
+  /**
+   * PapaParse 兼容回调：解析发生错误时调用
+   * @param error 错误对象
+   * @param file 原始输入源
+   */
+  error?: (error: Error, file?: FileInput) => void;
 
   /**
    * 纯文本模式设置：

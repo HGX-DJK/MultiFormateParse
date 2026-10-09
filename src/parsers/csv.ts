@@ -175,7 +175,7 @@ export async function parseCsv<T = any>(
     csvErrors: parsed.errors.length > 0 ? parsed.errors : undefined
   };
 
-  return {
+  const result: ParseResult<T> = {
     rows: rows as T[],
     data: rows as T[],
     columns,
@@ -188,4 +188,14 @@ export async function parseCsv<T = any>(
     meta,
     raw: rawText
   };
+
+  if (typeof options.complete === 'function') {
+    try {
+      options.complete(result, input);
+    } catch (cbErr) {
+      console.error('Error in complete callback:', cbErr);
+    }
+  }
+
+  return result;
 }
