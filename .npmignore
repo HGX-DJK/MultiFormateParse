@@ -1,0 +1,10 @@
+src/
+tests/
+rollup.config.mjs
+tsconfig.json
+.git/
+.github/
+*.log
+coverage/
+vitest.config.*
+index.html

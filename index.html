@@ -1,0 +1,731 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MultiFormatParser - 多格式文件统一解析测试</title>
+  <style>
+    :root {
+      --primary: #2563eb;
+      --primary-hover: #1d4ed8;
+      --bg: #f8fafc;
+      --card-bg: #ffffff;
+      --text: #0f172a;
+      --text-muted: #64748b;
+      --border: #e2e8f0;
+      --radius: 12px;
+      --success: #10b981;
+      --warning: #f59e0b;
+      --purple: #8b5cf6;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      padding: 24px;
+    }
+
+    .container {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    /* 顶部导航与介绍 */
+    header {
+      margin-bottom: 24px;
+      text-align: center;
+    }
+
+    h1 {
+      font-size: 28px;
+      font-weight: 700;
+      color: var(--text);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      margin-top: 6px;
+      font-size: 15px;
+    }
+
+    .tag-group {
+      display: flex;
+      justify-content: center;
+      gap: 8px;
+      margin-top: 12px;
+    }
+
+    .badge {
+      font-size: 12px;
+      font-weight: 600;
+      padding: 4px 10px;
+      border-radius: 9999px;
+      background: #e0e7ff;
+      color: #3730a3;
+    }
+    .badge.excel { background: #dcfce7; color: #166534; }
+    .badge.csv { background: #fef3c7; color: #92400e; }
+    .badge.text { background: #ede9fe; color: #5b21b6; }
+    .badge.json { background: #e0f2fe; color: #075985; }
+
+    /* 主卡片布局 */
+    .card {
+      background: var(--card-bg);
+      border-radius: var(--radius);
+      border: 1px solid var(--border);
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
+      padding: 24px;
+      margin-bottom: 24px;
+    }
+
+    /* 拖拽上传区域 */
+    .dropzone {
+      border: 2px dashed #cbd5e1;
+      border-radius: var(--radius);
+      padding: 36px 20px;
+      text-align: center;
+      cursor: pointer;
+      background: #f8fafc;
+      transition: all 0.2s ease;
+      position: relative;
+    }
+
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--primary);
+      background: #eff6ff;
+    }
+
+    .dropzone input[type="file"] {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      cursor: pointer;
+    }
+
+    .dropzone-icon {
+      font-size: 40px;
+      margin-bottom: 8px;
+    }
+
+    .dropzone-title {
+      font-size: 16px;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .dropzone-hint {
+      font-size: 13px;
+      color: var(--text-muted);
+      margin-top: 4px;
+    }
+
+    /* 快捷样例按钮 */
+    .quick-samples {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-top: 18px;
+      padding-top: 18px;
+      border-top: 1px dashed var(--border);
+    }
+
+    .quick-title {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: #ffffff;
+      color: var(--text);
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn:hover {
+      background: #f1f5f9;
+      border-color: #cbd5e1;
+    }
+
+    .btn-primary {
+      background: var(--primary);
+      color: #ffffff;
+      border-color: var(--primary);
+    }
+
+    .btn-primary:hover {
+      background: var(--primary-hover);
+    }
+
+    /* 控制面板选项 */
+    .options-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 18px;
+      margin-top: 16px;
+      font-size: 13px;
+      color: var(--text);
+    }
+
+    .options-row label {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      cursor: pointer;
+    }
+
+    select {
+      padding: 4px 8px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      font-size: 13px;
+      background: white;
+    }
+
+    /* 解析结果状态栏 */
+    .result-header {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 16px;
+    }
+
+    .stat-items {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 16px;
+      align-items: center;
+      font-size: 13px;
+    }
+
+    .stat-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .stat-value {
+      font-weight: 700;
+      color: var(--primary);
+    }
+
+    /* Tabs 选项卡 */
+    .tabs {
+      display: flex;
+      gap: 8px;
+    }
+
+    .tab-btn {
+      padding: 6px 14px;
+      font-size: 13px;
+      font-weight: 500;
+      border-radius: 6px;
+      border: none;
+      background: #f1f5f9;
+      color: var(--text-muted);
+      cursor: pointer;
+    }
+
+    .tab-btn.active {
+      background: var(--primary);
+      color: #ffffff;
+    }
+
+    /* 表格展示区 */
+    .table-container {
+      overflow-x: auto;
+      max-height: 480px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+      text-align: left;
+    }
+
+    th {
+      position: sticky;
+      top: 0;
+      background: #f8fafc;
+      font-weight: 600;
+      color: #334155;
+      padding: 10px 14px;
+      border-bottom: 2px solid var(--border);
+      white-space: nowrap;
+    }
+
+    td {
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      color: #1e293b;
+      white-space: nowrap;
+      max-width: 320px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    tr:nth-child(even) {
+      background-color: #fafafa;
+    }
+
+    tr:hover {
+      background-color: #f1f5f9;
+    }
+
+    .row-index {
+      color: #94a3b8;
+      font-size: 11px;
+      width: 48px;
+      text-align: center;
+    }
+
+    /* JSON 视图 */
+    pre {
+      background: #0f172a;
+      color: #f8fafc;
+      padding: 16px;
+      border-radius: 8px;
+      font-size: 12px;
+      max-height: 480px;
+      overflow: auto;
+      font-family: Consolas, Monaco, "Courier New", monospace;
+    }
+
+    /* 空状态提示 */
+    .empty-state {
+      text-align: center;
+      padding: 40px 20px;
+      color: var(--text-muted);
+    }
+    .empty-state-icon {
+      font-size: 40px;
+      margin-bottom: 10px;
+      opacity: 0.6;
+    }
+  </style>
+
+  <!-- 零外部依赖：MultiFormatParser 已经将所有解析内核完整打包，单文件即可直接运行 -->
+  <script src="./dist/index.global.js"></script>
+</head>
+<body>
+
+  <div class="container">
+    <header>
+      <h1>📂 MultiFormatParser 统一文件解析测试</h1>
+      <p class="subtitle">无论是 Excel、CSV 还是 TXT 文本，统一调用 <code>parse(file)</code>，输出一致的 <code>{ rows, columns, total }</code></p>
+      <div class="tag-group">
+        <span class="badge excel">Excel (.xlsx, .xls, .ods)</span>
+        <span class="badge csv">CSV / TSV</span>
+        <span class="badge text">纯文本 / 日志</span>
+        <span class="badge json">JSON 数据</span>
+      </div>
+    </header>
+
+    <!-- 文件上传与选项设置卡片 -->
+    <div class="card">
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="fileInput" accept=".xlsx,.xls,.ods,.csv,.tsv,.txt,.json,.log,.env,.ini">
+        <div class="dropzone-icon">📥</div>
+        <div class="dropzone-title">拖拽文件到此处，或点击选择本地文件</div>
+        <div class="dropzone-hint">支持 .xlsx / .xls / .csv / .txt / .json 等格式</div>
+      </div>
+
+      <!-- 快捷一键测试样例 -->
+      <div class="quick-samples">
+        <span class="quick-title">⚡ 快速一键测试示例：</span>
+        <button class="btn" id="btnSampleExcel">📊 测试示例 Excel</button>
+        <button class="btn" id="btnSampleCsv">📈 测试示例 CSV</button>
+        <button class="btn" id="btnSampleText">📝 测试示例 纯文本</button>
+        <button class="btn" id="btnSampleJson">⚙️ 测试示例 JSON</button>
+      </div>
+
+      <!-- 配置选项 -->
+      <div class="options-row">
+        <label>
+          <input type="checkbox" id="optHeader" checked> 首行作为表头 (header: true)
+        </label>
+        <label>
+          <input type="checkbox" id="optDynamicTyping" checked> 自动类型转换 (dynamicTyping: true)
+        </label>
+        <label>
+          <input type="checkbox" id="optSkipEmpty" checked> 过滤空行 (skipEmpty: true)
+        </label>
+        <div id="sheetSelectorWrap" style="display: none; align-items: center; gap: 6px;">
+          <span>工作表 (Sheet):</span>
+          <select id="sheetSelect"></select>
+        </div>
+      </div>
+    </div>
+
+    <!-- 解析结果展示卡片 -->
+    <div class="card" id="resultCard" style="display: none;">
+      <div class="result-header">
+        <div class="stat-items">
+          <div class="stat-item">
+            <span>识别格式:</span>
+            <span id="resTypeBadge" class="badge">未知</span>
+          </div>
+          <div class="stat-item">
+            <span>数据行数:</span>
+            <span class="stat-value" id="resTotal">0</span>
+          </div>
+          <div class="stat-item">
+            <span>列数:</span>
+            <span class="stat-value" id="resCols">0</span>
+          </div>
+          <div class="stat-item">
+            <span>解析耗时:</span>
+            <span class="stat-value" id="resDuration">0 ms</span>
+          </div>
+        </div>
+
+        <div class="tabs">
+          <button class="tab-btn active" id="tabTable">表格视图 (rows)</button>
+          <button class="tab-btn" id="tabJson">JSON 结构</button>
+          <button class="tab-btn" id="tabRaw">原始元信息 (meta)</button>
+        </div>
+      </div>
+
+      <!-- 内容展示区域 -->
+      <div id="viewTable">
+        <div class="table-container">
+          <table id="dataTable">
+            <thead id="tableHead"></thead>
+            <tbody id="tableBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div id="viewJson" style="display: none;">
+        <pre><code id="jsonCode"></code></pre>
+      </div>
+
+      <div id="viewRaw" style="display: none;">
+        <pre><code id="rawCode"></code></pre>
+      </div>
+    </div>
+
+    <div class="empty-state" id="emptyPrompt">
+      <div class="empty-state-icon">📄</div>
+      <p>请上传文件或点击上方测试示例，查看统一解析效果</p>
+    </div>
+  </div>
+
+  <script>
+    // 检查 MultiFormatParser 库是否已正确加载
+    const parser = window.MultiFormatParser ? window.MultiFormatParser.parse : null;
+    if (!parser) {
+      alert('MultiFormatParser 库加载失败，请确保先执行 npm run build 生成 dist/index.global.js！');
+    }
+
+    // DOM 元素引用
+    const dropzone = document.getElementById('dropzone');
+    const fileInput = document.getElementById('fileInput');
+    const resultCard = document.getElementById('resultCard');
+    const emptyPrompt = document.getElementById('emptyPrompt');
+    const resTypeBadge = document.getElementById('resTypeBadge');
+    const resTotal = document.getElementById('resTotal');
+    const resCols = document.getElementById('resCols');
+    const resDuration = document.getElementById('resDuration');
+    const sheetSelectorWrap = document.getElementById('sheetSelectorWrap');
+    const sheetSelect = document.getElementById('sheetSelect');
+
+    const optHeader = document.getElementById('optHeader');
+    const optDynamicTyping = document.getElementById('optDynamicTyping');
+    const optSkipEmpty = document.getElementById('optSkipEmpty');
+
+    const viewTable = document.getElementById('viewTable');
+    const viewJson = document.getElementById('viewJson');
+    const viewRaw = document.getElementById('viewRaw');
+    const tabTable = document.getElementById('tabTable');
+    const tabJson = document.getElementById('tabJson');
+    const tabRaw = document.getElementById('tabRaw');
+    const tableHead = document.getElementById('tableHead');
+    const tableBody = document.getElementById('tableBody');
+    const jsonCode = document.getElementById('jsonCode');
+    const rawCode = document.getElementById('rawCode');
+
+    let currentFileContent = null;
+    let currentFileName = '';
+    let currentParsedResult = null;
+
+    // 拖拽高亮效果
+    ['dragenter', 'dragover'].forEach(name => {
+      dropzone.addEventListener(name, (e) => {
+        e.preventDefault();
+        dropzone.classList.add('dragover');
+      });
+    });
+    ['dragleave', 'drop'].forEach(name => {
+      dropzone.addEventListener(name, (e) => {
+        e.preventDefault();
+        dropzone.classList.remove('dragover');
+      });
+    });
+
+    // 文件选择处理
+    fileInput.addEventListener('change', async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      currentFileName = file.name;
+      currentFileContent = file;
+      await executeParse();
+    });
+
+    // 执行统一解析核心逻辑
+    async function executeParse(specificSheet) {
+      if (!currentFileContent) return;
+
+      const options = {
+        header: optHeader.checked,
+        dynamicTyping: optDynamicTyping.checked,
+        skipEmpty: optSkipEmpty.checked,
+        fileName: currentFileName
+      };
+
+      if (specificSheet !== undefined) {
+        options.sheet = specificSheet;
+      } else if (sheetSelectorWrap.style.display !== 'none' && sheetSelect.value) {
+        options.sheet = sheetSelect.value;
+      }
+
+      const startTime = performance.now();
+      try {
+        const result = await window.MultiFormatParser.parse(currentFileContent, options);
+        const duration = Math.round(performance.now() - startTime);
+
+        currentParsedResult = result;
+        renderResult(result, duration);
+      } catch (err) {
+        alert('解析失败: ' + err.message);
+        console.error(err);
+      }
+    }
+
+    // 渲染解析结果
+    function renderResult(result, duration) {
+      emptyPrompt.style.display = 'none';
+      resultCard.style.display = 'block';
+
+      // 1. 统计与元数据
+      resTotal.textContent = result.total;
+      resCols.textContent = result.columns.length;
+      resDuration.textContent = duration + ' ms';
+
+      resTypeBadge.textContent = result.type.toUpperCase();
+      resTypeBadge.className = 'badge ' + result.type;
+
+      // 2. 如果是 Excel 且包含多个 sheet，显示下拉选择框
+      if (result.type === 'excel' && result.sheetNames && result.sheetNames.length > 1) {
+        sheetSelectorWrap.style.display = 'inline-flex';
+        sheetSelect.innerHTML = '';
+        result.sheetNames.forEach(name => {
+          const opt = document.createElement('option');
+          opt.value = name;
+          opt.textContent = name;
+          if (name === result.currentSheet) opt.selected = true;
+          sheetSelect.appendChild(opt);
+        });
+      } else {
+        sheetSelectorWrap.style.display = 'none';
+      }
+
+      // 3. 渲染数据表格
+      renderTable(result);
+
+      // 4. 渲染 JSON 与 Meta
+      jsonCode.textContent = JSON.stringify(result.rows, null, 2);
+      rawCode.textContent = JSON.stringify({
+        meta: result.meta,
+        currentSheet: result.currentSheet,
+        sheetNames: result.sheetNames,
+        sheetsSummary: result.sheets ? Object.keys(result.sheets) : undefined
+      }, null, 2);
+    }
+
+    // 渲染表格内容
+    function renderTable(result) {
+      tableHead.innerHTML = '';
+      tableBody.innerHTML = '';
+
+      const { rows, columns } = result;
+
+      // 表头
+      const headerRow = document.createElement('tr');
+      const thIndex = document.createElement('th');
+      thIndex.textContent = '#';
+      thIndex.className = 'row-index';
+      headerRow.appendChild(thIndex);
+
+      if (columns.length > 0) {
+        columns.forEach(col => {
+          const th = document.createElement('th');
+          th.textContent = col;
+          headerRow.appendChild(th);
+        });
+      } else if (rows.length > 0 && Array.isArray(rows[0])) {
+        // 二维数组无表头模式
+        rows[0].forEach((_, i) => {
+          const th = document.createElement('th');
+          th.textContent = `列 ${i + 1}`;
+          headerRow.appendChild(th);
+        });
+      } else {
+        // 单列文本
+        const th = document.createElement('th');
+        th.textContent = '内容 (Content)';
+        headerRow.appendChild(th);
+      }
+      tableHead.appendChild(headerRow);
+
+      // 渲染前 100 行（防止海量数据卡顿）
+      const displayRows = rows.slice(0, 100);
+      displayRows.forEach((row, idx) => {
+        const tr = document.createElement('tr');
+        const tdIdx = document.createElement('td');
+        tdIdx.textContent = idx + 1;
+        tdIdx.className = 'row-index';
+        tr.appendChild(tdIdx);
+
+        if (typeof row === 'object' && row !== null && !Array.isArray(row)) {
+          columns.forEach(col => {
+            const td = document.createElement('td');
+            const val = row[col];
+            td.textContent = val !== undefined && val !== null ? String(val) : '';
+            tr.appendChild(td);
+          });
+        } else if (Array.isArray(row)) {
+          row.forEach(val => {
+            const td = document.createElement('td');
+            td.textContent = val !== undefined && val !== null ? String(val) : '';
+            tr.appendChild(td);
+          });
+        } else {
+          const td = document.createElement('td');
+          td.textContent = String(row);
+          tr.appendChild(td);
+        }
+
+        tableBody.appendChild(tr);
+      });
+    }
+
+    // 切换 Tab 标签
+    function switchTab(activeTab, showView) {
+      [tabTable, tabJson, tabRaw].forEach(t => t.classList.remove('active'));
+      [viewTable, viewJson, viewRaw].forEach(v => v.style.display = 'none');
+      activeTab.classList.add('active');
+      showView.style.display = 'block';
+    }
+
+    tabTable.addEventListener('click', () => switchTab(tabTable, viewTable));
+    tabJson.addEventListener('click', () => switchTab(tabJson, viewJson));
+    tabRaw.addEventListener('click', () => switchTab(tabRaw, viewRaw));
+
+    // 工作表切换事件
+    sheetSelect.addEventListener('change', () => {
+      executeParse(sheetSelect.value);
+    });
+
+    // 选项切换自动重新解析
+    [optHeader, optDynamicTyping, optSkipEmpty].forEach(el => {
+      el.addEventListener('change', () => executeParse());
+    });
+
+    // --- 快捷示例测试按钮事件 ---
+
+    // 1. 示例 Excel（内存中动态生成 xlsx 二进制数据并测试）
+    document.getElementById('btnSampleExcel').addEventListener('click', () => {
+      const XLSX = window.MultiFormatParser?.XLSX || window.XLSX;
+      if (!XLSX) return alert('XLSX 尚未就绪');
+      const wb = XLSX.utils.book_new();
+
+      // 工作表 1：员工表
+      const staff = [
+        { "工号": "E1001", "姓名": "张三", "部门": "研发中心", "薪资": 18500, "转正": true },
+        { "工号": "E1002", "姓名": "李四", "部门": "产品运营", "薪资": 16000, "转正": true },
+        { "工号": "E1003", "姓名": "王五", "部门": "体验设计", "薪资": 14200, "转正": false },
+        { "工号": "E1004", "姓名": "赵六", "部门": "质量效能", "薪资": 17800, "转正": true }
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(staff), "员工清单");
+
+      // 工作表 2：项目表
+      const projects = [
+        { "项目编号": "PRJ-01", "项目名称": "Rollup 文件解析器", "进度": "100%" },
+        { "项目编号": "PRJ-02", "项目名称": "Web 演练测试台", "进度": "90%" }
+      ];
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(projects), "重点项目");
+
+      const buf = XLSX.write(wb, { type: 'array', bookType: 'xlsx' });
+      currentFileContent = new Uint8Array(buf);
+      currentFileName = 'company_report.xlsx';
+      executeParse();
+    });
+
+    // 2. 示例 CSV
+    document.getElementById('btnSampleCsv').addEventListener('click', () => {
+      currentFileContent = `订单号,客户姓名,商品名称,单价,数量,已支付
+ORD-2026-001,陈先生,"MacBook Pro 16""",18999,1,true
+ORD-2026-002,林女士,"4K 超高清显示器, 27寸",2499,2,true
+ORD-2026-003,刘先生,"人体工学机械键盘",699,1,false
+ORD-2026-004,黄女士,"降噪蓝牙耳机",1299,3,true`;
+      currentFileName = 'orders_data.csv';
+      executeParse();
+    });
+
+    // 3. 示例纯文本
+    document.getElementById('btnSampleText').addEventListener('click', () => {
+      currentFileContent = `[2026-10-09 10:00:01] [INFO] 系统服务 MultiFormatParser 初始化完成
+[2026-10-09 10:00:03] [INFO] 监听端口 8080 已启动就绪
+[2026-10-09 10:00:15] [WARN] 检测到第三方依赖已加载缓存
+[2026-10-09 10:01:22] [INFO] 成功接收客户端文件上传请求
+[2026-10-09 10:01:23] [SUCCESS] 文件解析完毕，耗时 12ms`;
+      currentFileName = 'app.log';
+      executeParse();
+    });
+
+    // 4. 示例 JSON
+    document.getElementById('btnSampleJson').addEventListener('click', () => {
+      currentFileContent = JSON.stringify([
+        { id: 101, username: "alex", role: "admin", email: "alex@example.com", status: "active" },
+        { id: 102, username: "bella", role: "editor", email: "bella@example.com", status: "active" },
+        { id: 103, username: "carlos", role: "viewer", email: "carlos@example.com", status: "disabled" }
+      ], null, 2);
+      currentFileName = 'users_list.json';
+      executeParse();
+    });
+  </script>
+</body>
+</html>
