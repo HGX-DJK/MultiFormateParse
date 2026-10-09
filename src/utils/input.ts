@@ -136,10 +136,73 @@ function decodeBase64ToUint8Array(base64: string): Uint8Array {
   throw new Error('Base64 decoding is not supported in this environment');
 }
 
+export interface InputProcessOptions {
+  signal?: AbortSignal;
+  maxFileSize?: number;
+  onProgress?: (progress: { loaded: number; total?: number; percent?: number }) => void;
+}
+
+/**
+ * 智能自动侦测并解码文本字节（处理 UTF-8 BOM、UTF-16LE/BE BOM，并在 UTF-8 校验失败时自动降级尝试 GBK/GB2312）
+ */
+export function decodeTextWithAutoDetection(
+  bytes: Uint8Array,
+  requestedEncoding = 'auto'
+): string {
+  const enc = (requestedEncoding || 'auto').toLowerCase();
+
+  // 若用户显式指定了明确且非 auto/utf-8 的编码（例如 'shift-jis'）
+  if (enc !== 'auto' && enc !== 'utf-8' && enc !== 'utf8') {
+    try {
+      return new TextDecoder(enc, { fatal: false }).decode(bytes);
+    } catch {
+      // 若当前环境不支持指定编码，降级走默认探测
+    }
+  }
+
+  // 1. 检查并剥离常见 BOM 头
+  // UTF-8 BOM: EF BB BF
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return new TextDecoder('utf-8', { fatal: false }).decode(bytes.subarray(3));
+  }
+  // UTF-16 LE BOM: FF FE
+  if (bytes.length >= 2 && bytes[0] === 0xff && bytes[1] === 0xfe) {
+    return new TextDecoder('utf-16le', { fatal: false }).decode(bytes.subarray(2));
+  }
+  // UTF-16 BE BOM: FE FF
+  if (bytes.length >= 2 && bytes[0] === 0xfe && bytes[1] === 0xff) {
+    return new TextDecoder('utf-16be', { fatal: false }).decode(bytes.subarray(2));
+  }
+
+  // 2. 严格模式尝试 UTF-8 解码校验
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    // 3. 当遇到非法 UTF-8 字节序列时，自动回退到 GBK / GB18030（解决 Windows Excel 导出 CSV 在中文环境下的乱码问题）
+    try {
+      return new TextDecoder('gbk', { fatal: false }).decode(bytes);
+    } catch {
+      // 最终兜底
+      return new TextDecoder('utf-8', { fatal: false }).decode(bytes);
+    }
+  }
+}
+
 /**
  * Resolves input to a binary Uint8Array
  */
-export async function toUint8Array(input: FileInput): Promise<Uint8Array> {
+export async function toUint8Array(
+  input: FileInput,
+  options: InputProcessOptions = {}
+): Promise<Uint8Array> {
+  options.signal?.throwIfAborted?.();
+
+  const checkSize = (size: number) => {
+    if (typeof options.maxFileSize === 'number' && size > options.maxFileSize) {
+      throw new Error(`文件大小 (${size} 字节) 超出设定的最大上限 (${options.maxFileSize} 字节)`);
+    }
+  };
+
   // Empty or null handling
   if (input === null || input === undefined || input === '') {
     return new Uint8Array(0);
@@ -147,16 +210,21 @@ export async function toUint8Array(input: FileInput): Promise<Uint8Array> {
 
   // Already Uint8Array or Buffer
   if (input instanceof Uint8Array) {
+    checkSize(input.byteLength);
     return input;
   }
 
   // ArrayBuffer
   if (input instanceof ArrayBuffer) {
+    checkSize(input.byteLength);
     return new Uint8Array(input);
   }
 
   // Browser Blob or File
   if (typeof Blob !== 'undefined' && input instanceof Blob) {
+    if (typeof (input as any).size === 'number') {
+      checkSize((input as any).size);
+    }
     if (typeof input.arrayBuffer === 'function') {
       const buf = await input.arrayBuffer();
       return new Uint8Array(buf);
@@ -175,11 +243,14 @@ export async function toUint8Array(input: FileInput): Promise<Uint8Array> {
     const chunks: Uint8Array[] = [];
     let totalLength = 0;
     while (true) {
+      options.signal?.throwIfAborted?.();
       const { done, value } = await reader.read();
       if (done) break;
       if (value) {
         chunks.push(value);
         totalLength += value.length;
+        checkSize(totalLength);
+        options.onProgress?.({ loaded: totalLength });
       }
     }
     const merged = new Uint8Array(totalLength);
@@ -198,12 +269,48 @@ export async function toUint8Array(input: FileInput): Promise<Uint8Array> {
       if (typeof fetch !== 'function') {
         throw new Error('fetch is not supported in this environment to load remote URLs');
       }
-      const response = await fetch(input);
+      const response = await fetch(input, { signal: options.signal });
       if (!response.ok) {
         throw new Error(`Failed to fetch file from "${input}": ${response.status} ${response.statusText}`);
       }
+
+      const contentLength = Number(response.headers.get('content-length')) || undefined;
+      if (contentLength) {
+        checkSize(contentLength);
+      }
+
+      if (response.body && typeof ReadableStream !== 'undefined') {
+        const reader = response.body.getReader();
+        const chunks: Uint8Array[] = [];
+        let totalLength = 0;
+        while (true) {
+          options.signal?.throwIfAborted?.();
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) {
+            chunks.push(value);
+            totalLength += value.length;
+            checkSize(totalLength);
+            options.onProgress?.({
+              loaded: totalLength,
+              total: contentLength,
+              percent: contentLength ? Math.min(100, Math.round((totalLength / contentLength) * 100)) : undefined
+            });
+          }
+        }
+        const merged = new Uint8Array(totalLength);
+        let offset = 0;
+        for (const chunk of chunks) {
+          merged.set(chunk, offset);
+          offset += chunk.length;
+        }
+        return merged;
+      }
+
       const arrayBuffer = await response.arrayBuffer();
-      return new Uint8Array(arrayBuffer);
+      const u8 = new Uint8Array(arrayBuffer);
+      checkSize(u8.byteLength);
+      return u8;
     }
 
     // 2. Base64 Data URL (data:...;base64,...)
@@ -213,10 +320,14 @@ export async function toUint8Array(input: FileInput): Promise<Uint8Array> {
         const metaPart = input.slice(0, commaIdx);
         const dataPart = input.slice(commaIdx + 1);
         if (metaPart.includes(';base64')) {
-          return decodeBase64ToUint8Array(dataPart);
+          const u8 = decodeBase64ToUint8Array(dataPart);
+          checkSize(u8.byteLength);
+          return u8;
         }
         // URL-encoded text data
-        return new TextEncoder().encode(decodeURIComponent(dataPart));
+        const u8 = new TextEncoder().encode(decodeURIComponent(dataPart));
+        checkSize(u8.byteLength);
+        return u8;
       }
     }
 
@@ -227,23 +338,28 @@ export async function toUint8Array(input: FileInput): Promise<Uint8Array> {
         if (fs && fs.existsSync(input)) {
           const stats = fs.statSync(input);
           if (stats.isFile()) {
+            checkSize(stats.size);
             const buf = fs.readFileSync(input);
             return new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
           }
         }
-      } catch {
-        // Fallback to text encoding
+      } catch (e: any) {
+        if (e?.message?.includes('超出设定的最大上限')) throw e;
       }
     }
 
     // Treat as raw text string
+    let u8: Uint8Array;
     if (typeof TextEncoder !== 'undefined') {
-      return new TextEncoder().encode(input);
-    }
-    if (typeof Buffer !== 'undefined') {
+      u8 = new TextEncoder().encode(input);
+    } else if (typeof Buffer !== 'undefined') {
       const b = Buffer.from(input, 'utf-8');
-      return new Uint8Array(b.buffer, b.byteOffset, b.byteLength);
+      u8 = new Uint8Array(b.buffer, b.byteOffset, b.byteLength);
+    } else {
+      u8 = new Uint8Array(0);
     }
+    checkSize(u8.byteLength);
+    return u8;
   }
 
   throw new Error(`Unsupported input type: ${typeof input}`);
@@ -252,81 +368,47 @@ export async function toUint8Array(input: FileInput): Promise<Uint8Array> {
 /**
  * Resolves input to an ArrayBuffer
  */
-export async function toArrayBuffer(input: FileInput): Promise<ArrayBuffer> {
-  const u8 = await toUint8Array(input);
+export async function toArrayBuffer(
+  input: FileInput,
+  options: InputProcessOptions = {}
+): Promise<ArrayBuffer> {
+  const u8 = await toUint8Array(input, options);
   return u8.buffer.slice(u8.byteOffset, u8.byteOffset + u8.byteLength) as ArrayBuffer;
 }
 
 /**
  * Resolves input to decoded text string
  */
-export async function toText(input: FileInput, encoding = 'utf-8'): Promise<string> {
+export async function toText(
+  input: FileInput,
+  encoding = 'auto',
+  options: InputProcessOptions = {}
+): Promise<string> {
   if (input === null || input === undefined || input === '') {
     return '';
   }
 
-  if (typeof input === 'string') {
-    // 1. Remote HTTP/HTTPS URL
-    if (/^https?:\/\//i.test(input)) {
-      if (typeof fetch === 'function') {
-        const res = await fetch(input);
-        if (!res.ok) {
-          throw new Error(`Failed to fetch file from "${input}": ${res.status} ${res.statusText}`);
-        }
-        return await res.text();
-      }
-    }
-
-    // 2. Base64 Data URL
-    if (input.startsWith('data:')) {
-      const u8 = await toUint8Array(input);
-      if (typeof TextDecoder !== 'undefined') {
-        return new TextDecoder(encoding, { fatal: false }).decode(u8);
-      }
-    }
-
-    // 3. Local file path in Node.js
-    if (isNodeEnvironment() && isPossibleFilePath(input)) {
-      try {
-        const fs = getNodeModule('fs');
-        if (fs && fs.existsSync(input)) {
-          const stats = fs.statSync(input);
-          if (stats.isFile()) {
-            return fs.readFileSync(input, { encoding: encoding as BufferEncoding });
+  // 1. Local file path in Node.js
+  if (typeof input === 'string' && isNodeEnvironment() && isPossibleFilePath(input)) {
+    try {
+      const fs = getNodeModule('fs');
+      if (fs && fs.existsSync(input)) {
+        const stats = fs.statSync(input);
+        if (stats.isFile()) {
+          if (typeof options.maxFileSize === 'number' && stats.size > options.maxFileSize) {
+            throw new Error(`文件大小 (${stats.size} 字节) 超出设定的最大上限 (${options.maxFileSize} 字节)`);
           }
+          const buf = fs.readFileSync(input);
+          const u8 = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
+          return decodeTextWithAutoDetection(u8, encoding);
         }
-      } catch {
-        // Fallback to returning raw string
       }
+    } catch (e: any) {
+      if (e?.message?.includes('超出设定的最大上限')) throw e;
     }
-
-    return input;
   }
 
-  // Browser Blob / File text() method optimization
-  if (
-    typeof Blob !== 'undefined' &&
-    input instanceof Blob &&
-    (!encoding || encoding.toLowerCase() === 'utf-8') &&
-    typeof input.text === 'function'
-  ) {
-    return await input.text();
-  }
-
-  // Decode from Uint8Array
-  const u8 = await toUint8Array(input);
-  if (typeof TextDecoder !== 'undefined') {
-    const decoder = new TextDecoder(encoding, { fatal: false });
-    return decoder.decode(u8);
-  }
-
-  if (typeof Buffer !== 'undefined') {
-    return Buffer.from(u8.buffer, u8.byteOffset, u8.byteLength).toString(encoding as BufferEncoding);
-  }
-
-  let res = '';
-  for (let i = 0; i < u8.length; i++) {
-    res += String.fromCharCode(u8[i]);
-  }
-  return res;
+  // 2. Decode from Uint8Array
+  const u8 = await toUint8Array(input, options);
+  return decodeTextWithAutoDetection(u8, encoding);
 }

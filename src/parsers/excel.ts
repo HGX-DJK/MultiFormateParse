@@ -31,10 +31,11 @@ export async function parseExcel<T = any>(
     transformHeader,
     transform,
     trim = true,
-    fileName: hintFileName
+    fileName: hintFileName,
+    onRow
   } = options;
 
-  const bytes = await toUint8Array(input);
+  const bytes = await toUint8Array(input, options);
   const inputInfo = getInputInfo(input);
   const fileName = hintFileName || inputInfo.fileName;
 
@@ -60,10 +61,13 @@ export async function parseExcel<T = any>(
     };
   }
 
-  // 读取工作簿
+  // 读取工作簿（生产级优化：禁用不必要的公式 AST、HTML 与样式解析，显著削减内存）
   const workbook = XLSX.read(bytes, {
     type: 'array',
     cellDates: true,
+    cellFormula: false,
+    cellHTML: false,
+    cellStyles: false,
     dateNF
   });
 
@@ -200,6 +204,17 @@ export async function parseExcel<T = any>(
       }
       return row;
     });
+  }
+
+  // 支持逐行回调 onRow，若返回 false 则提前截断
+  if (typeof onRow === 'function') {
+    for (let i = 0; i < rows.length; i++) {
+      const continueFlag = onRow(rows[i], i);
+      if (continueFlag === false) {
+        rows = rows.slice(0, i + 1);
+        break;
+      }
+    }
   }
 
   const fullCount = rows.length;

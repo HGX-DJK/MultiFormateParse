@@ -11,7 +11,7 @@ export * from './types';
 export * from './parsers';
 export { XLSX, Papa };
 export { detectFileType } from './utils/detector';
-export { toUint8Array, toArrayBuffer, toText, getInputInfo } from './utils/input';
+export { toUint8Array, toArrayBuffer, toText, getInputInfo, decodeTextWithAutoDetection } from './utils/input';
 
 /**
  * 统一文件解析入口（自动智能识别并统一输出格式）

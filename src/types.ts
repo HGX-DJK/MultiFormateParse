@@ -15,6 +15,18 @@ export type FileInput =
 export type FileType = 'excel' | 'csv' | 'text' | 'json';
 
 /**
+ * 数据加载或下载进度信息
+ */
+export interface ParseProgress {
+  /** 当前已读取/下载字节数 */
+  loaded: number;
+  /** 文件总字节数（如果已知） */
+  total?: number;
+  /** 进度百分比 (0 - 100) */
+  percent?: number;
+}
+
+/**
  * 统一的解析配置选项
  */
 export interface ParseOptions {
@@ -33,6 +45,14 @@ export interface ParseOptions {
    * @default true
    */
   dynamicTyping?: boolean;
+
+  /**
+   * 大数值精度安全保护：
+   * 自动将超过 15 位的超长整数（如 18 位身份证号、雪花算法 ID、订单流水号）以及带前导 0 的编码（如邮编 '01000'）保持为字符串，
+   * 避免由于 JavaScript IEEE-754 双精度浮点数限制导致末位被强制置零。
+   * @default true
+   */
+  safeNumberPrecision?: boolean;
 
   /**
    * 是否保持底层原始值（如 Excel 中不转格式化文本字符串）
@@ -67,8 +87,8 @@ export interface ParseOptions {
   delimiter?: string;
 
   /**
-   * 编码格式（默认 utf-8）
-   * @default 'utf-8'
+   * 编码格式（默认 'auto' 智能自适应识别，支持 UTF-8、GBK、GB2312、UTF-16 等）
+   * @default 'auto'
    */
   encoding?: string;
 
@@ -87,6 +107,26 @@ export interface ParseOptions {
    * MIME 类型提示
    */
   mimeType?: string;
+
+  /**
+   * 中断控制信号（支持标准 AbortSignal，用于取消网络下载或长耗时任务）
+   */
+  signal?: AbortSignal;
+
+  /**
+   * 最大允许文件大小限制（字节数），超出后安全抛错阻断，防止大文件 OOM 攻击
+   */
+  maxFileSize?: number;
+
+  /**
+   * 数据加载/下载进度回调函数
+   */
+  onProgress?: (progress: ParseProgress) => void;
+
+  /**
+   * 逐行处理回调，若返回 false 则提前中止后续解析
+   */
+  onRow?: (row: any, index: number) => void | boolean;
 
   /**
    * 纯文本模式设置：

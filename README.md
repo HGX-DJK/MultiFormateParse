@@ -146,12 +146,43 @@ const result = await parse(file, {
 | `sheet` | `number \| string \| 'all'` | `0` | *(Excel)* 选择解析的工作表（默认第 1 个）；传 `'all'` 会将全部 Sheet 解析在 `sheets` 中 |
 | `delimiter` | `string` | 自动侦测 | *(CSV)* 分隔符（逗号、分号、`\t` 等） |
 | `textMode` | `'lines' \| 'raw' \| 'key-value' \| 'json'` | `'lines'` | *(Text)* 文本处理模式 |
-| `encoding` | `string` | `'utf-8'` | 字符编码 |
+| `encoding` | `string` | `'auto'` | 字符编码（默认 `'auto'` 智能自动识别 UTF-8、GBK、GB2312、UTF-16 等） |
 | `type` | `'auto' \| 'excel' \| 'csv' \| 'text' \| 'json'` | `'auto'` | 强制指定文件类型，默认自动探测 |
+| `safeNumberPrecision` | `boolean` | `true` | 大数字精度保护（18位身份证、雪花 ID、带前导0邮编保持字符串，防止 JS 浮点溢出置零） |
+| `signal` | `AbortSignal` | - | 标准取消信号（支持中断远程网络下载或长耗时任务） |
+| `maxFileSize` | `number` | - | 最大文件大小限制（字节），超出后安全阻断，防止内存溢出 (OOM) |
+| `onProgress` | `(progress: ParseProgress) => void` | - | 数据读取/下载实时进度回调 |
+| `onRow` | `(row: any, index: number) => void \| boolean` | - | 逐行处理回调，返回 `false` 可提前终止后续解析 |
 | `preview` | `number` | - | 快速预览：只解析并返回前 N 行数据（大文件提速神器） |
 | `transformHeader`| `(header: string, index: number) => string` | - | 转换/清洗表头列名（Excel 与 CSV 均支持） |
 | `transform` | `(value: any, field: string \| number) => any` | - | 转换/清洗每个单元格数值 |
 | `fileName` | `string` | - | 传入二进制 ArrayBuffer / Buffer 时，可用于辅助推断文件格式 |
+
+---
+
+## 🛡️ 企业生产级特性 (Enterprise Ready)
+
+本库不仅提供了极简的统一 API，更针对真实工业级复杂场景深度打磨：
+
+### 1. 中文 GBK / Windows Excel 导出 CSV 零乱码
+Windows Office Excel 导出的 CSV 文件通常为 ANSI / GBK 编码，传统解析库在前端会直接产生乱码（``）。
+本库默认开启 **智能编码嗅探 (`encoding: 'auto'`)**：
+- 自动检测并剔除 UTF-8、UTF-16LE、UTF-16BE 的 Byte Order Mark (BOM)；
+- 严格校验 UTF-8，当遇到非法字节序列时自动平滑回退至 GBK / GB18030，开发者无需任何额外配置即可完美显示中文。
+
+### 2. 超长整数（雪花 ID / 身份证号）精度安全
+在 JavaScript 中，任何大于 `9007199254740991`（超过 15 位）的整数都会因 IEEE-754 双精度浮点限制发生末位截断置零（例如 `1823912093812093812` 变成 `1823912093812093800`），前导 0 编码（如邮编 `'01000'`）也会丢失。
+本库默认开启 `safeNumberPrecision: true`：
+- 超长纯数字（如订单号、雪花算法 ID、身份证）自动保持原始 `string`；
+- 带前导 0 的编码（如 `'01234'`）保持为 `string`；
+- 普通数值与浮点数正常转为 `number`，确保核心业务数据万无一失。
+
+### 3. 防 OOM 资源阻断与请求取消 (`AbortSignal`)
+- **`maxFileSize` 防护**：在读取流、Buffer 或发起网络请求时即时校验，防止恶意上传数百兆超大文件压垮 Node.js 进程或卡死浏览器。
+- **`signal: AbortSignal`**：完美联动浏览器的 `AbortController`，在弹窗关闭或用户取消时立即中断底层网络传输。
+
+### 4. 零 DOM 依赖，天然支持 Web Worker
+整个核心库代码严格实现无 DOM / 视窗依赖（零 `window` / `document` 强绑定）。在处理数十万行复杂表格时，可直接将其移入 Web Worker 中后台执行，彻底告别浏览器主线程卡顿与 UI 白屏。
 
 ---
 
@@ -181,6 +212,16 @@ const res = await parse(configContent, {
 
 console.log(res.data);
 // -> { PORT: '8080', HOST: 'localhost', DEBUG: 'true' }
+```
+
+### 场景 4：超长任务逐行处理与早期终止
+```typescript
+await parse(largeCsv, {
+  onRow: (row, index) => {
+    console.log(`正在处理第 ${index + 1} 行:`, row);
+    if (index >= 999) return false; // 仅处理前 1000 条，提前终止节省 CPU
+  }
+});
 ```
 
 ---

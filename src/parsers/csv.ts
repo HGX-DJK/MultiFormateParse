@@ -3,6 +3,41 @@ import { FileInput, ParseOptions, ParseResult } from '../types';
 import { getInputInfo, toText } from '../utils/input';
 
 /**
+ * 生产级安全动态类型转换（防止超长整数精度丢失与前导 0 丢失）
+ */
+function parseSafeDynamicValue(val: any): any {
+  if (typeof val !== 'string') return val;
+  const trimmed = val.trim();
+  if (trimmed === 'true' || trimmed === 'TRUE') return true;
+  if (trimmed === 'false' || trimmed === 'FALSE') return false;
+  if (trimmed === 'null' || trimmed === 'NULL') return null;
+  if (trimmed === 'undefined') return undefined;
+
+  // 带前导 0 的编码（如邮编 '01234'、电话区号）必须保留为原始字符串
+  if (/^0\d+$/.test(trimmed) || /^-0\d+$/.test(trimmed)) {
+    return val;
+  }
+
+  // 纯整数
+  if (/^-?\d+$/.test(trimmed)) {
+    if (trimmed.length >= 16) {
+      const num = Number(trimmed);
+      if (num > Number.MAX_SAFE_INTEGER || num < Number.MIN_SAFE_INTEGER) {
+        return val; // 超过 JS 安全整数限制（如 18 位身份证或雪花 ID），防止精度丢失
+      }
+    }
+    return Number(trimmed);
+  }
+
+  // 标准浮点数
+  if (/^-?\d+\.\d+$/.test(trimmed)) {
+    return Number(trimmed);
+  }
+
+  return val;
+}
+
+/**
  * 解析 CSV / TSV 文本或文件
  */
 export async function parseCsv<T = any>(
@@ -13,16 +48,18 @@ export async function parseCsv<T = any>(
     header = true,
     delimiter,
     dynamicTyping = true,
+    safeNumberPrecision = true,
     skipEmpty = true,
     transformHeader,
     transform,
     trim = true,
-    encoding = 'utf-8',
+    encoding = 'auto',
     preview,
-    fileName: hintFileName
+    fileName: hintFileName,
+    onRow
   } = options;
 
-  let rawText = await toText(input, encoding);
+  let rawText = await toText(input, encoding, options);
   const inputInfo = getInputInfo(input);
   const fileName = hintFileName || inputInfo.fileName;
 
@@ -64,13 +101,25 @@ export async function parseCsv<T = any>(
     return name;
   };
 
+  // 单元格数据转换处理
+  const cellTransformer = (value: string, field: string | number) => {
+    let val: any = value;
+    if (dynamicTyping && safeNumberPrecision) {
+      val = parseSafeDynamicValue(val);
+    }
+    if (typeof transform === 'function') {
+      val = transform(val, field);
+    }
+    return val;
+  };
+
   const parseConfig: Papa.ParseConfig = {
     header: isHeaderMode,
     delimiter: delimiter || undefined,
-    dynamicTyping,
+    dynamicTyping: dynamicTyping && !safeNumberPrecision,
     skipEmptyLines: skipEmpty,
     transformHeader: headerTransformer,
-    transform,
+    transform: cellTransformer,
     preview
   };
 
@@ -95,6 +144,17 @@ export async function parseCsv<T = any>(
     });
   } else if (isHeaderMode && parsed.meta.fields) {
     columns = parsed.meta.fields;
+  }
+
+  // 支持逐行回调 onRow，若返回 false 则提前截断
+  if (typeof onRow === 'function') {
+    for (let i = 0; i < rows.length; i++) {
+      const continueFlag = onRow(rows[i], i);
+      if (continueFlag === false) {
+        rows = rows.slice(0, i + 1);
+        break;
+      }
+    }
   }
 
   const meta = {

@@ -10,15 +10,16 @@ export async function parseText<T = any>(
 ): Promise<ParseResult<T>> {
   const {
     textMode = 'lines',
-    encoding = 'utf-8',
+    encoding = 'auto',
     trim = true,
     skipEmpty = true,
     preview,
     transform,
-    fileName: hintFileName
+    fileName: hintFileName,
+    onRow
   } = options;
 
-  const rawText = await toText(input, encoding);
+  const rawText = await toText(input, encoding, options);
   const inputInfo = getInputInfo(input);
   const fileName = hintFileName || inputInfo.fileName;
 
@@ -137,6 +138,17 @@ export async function parseText<T = any>(
   // 单元格/行值转换
   if (typeof transform === 'function') {
     rows = rows.map((r, idx) => transform(r, idx));
+  }
+
+  // 支持逐行回调 onRow，若返回 false 则提前截断
+  if (typeof onRow === 'function') {
+    for (let i = 0; i < rows.length; i++) {
+      const continueFlag = onRow(rows[i], i);
+      if (continueFlag === false) {
+        rows = rows.slice(0, i + 1);
+        break;
+      }
+    }
   }
 
   // 支持 preview
