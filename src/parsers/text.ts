@@ -61,7 +61,12 @@ export async function parseText<T = any>(
     case 'json': {
       fileType = 'json';
       const trimmed = rawText.trim();
-      const parsedJson = JSON.parse(trimmed);
+      let parsedJson: any;
+      try {
+        parsedJson = JSON.parse(trimmed);
+      } catch (err: any) {
+        throw new Error(`无法解析 JSON 文件内容: ${err?.message || err}`);
+      }
       dataAlias = parsedJson;
 
       if (Array.isArray(parsedJson)) {

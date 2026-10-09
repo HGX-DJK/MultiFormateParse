@@ -52,7 +52,8 @@ export async function parseCsv<T = any>(
     rawText = rawText.slice(1);
   }
 
-  const isHeaderMode = typeof header === 'boolean' ? header : Boolean(header);
+  const isCustomHeader = Array.isArray(header);
+  const isHeaderMode = isCustomHeader ? false : (typeof header === 'boolean' ? header : true);
 
   // 默认对表头去空格并执行 transformHeader
   const headerTransformer = (h: string, idx: number) => {
@@ -74,14 +75,26 @@ export async function parseCsv<T = any>(
   };
 
   const parsed = Papa.parse(rawText, parseConfig);
-  const rows = (parsed.data || []) as any[];
+  let rows = (parsed.data || []) as any[];
 
-  // 提取列名
+  // 提取列名及映射自定义表头
   let columns: string[] = [];
-  if (isHeaderMode && parsed.meta.fields) {
+  if (isCustomHeader) {
+    const customHeaders = (header as string[]).map((h, i) => headerTransformer(String(h), i));
+    columns = customHeaders;
+    rows = rows.map((rowArr) => {
+      if (Array.isArray(rowArr)) {
+        const obj: Record<string, any> = {};
+        for (let i = 0; i < customHeaders.length; i++) {
+          const key = customHeaders[i];
+          obj[key] = rowArr[i] !== undefined ? rowArr[i] : null;
+        }
+        return obj;
+      }
+      return rowArr;
+    });
+  } else if (isHeaderMode && parsed.meta.fields) {
     columns = parsed.meta.fields;
-  } else if (Array.isArray(header)) {
-    columns = header;
   }
 
   const meta = {

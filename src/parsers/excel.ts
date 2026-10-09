@@ -88,15 +88,6 @@ export async function parseExcel<T = any>(
     sheetToJsonOpts.range = header;
   }
 
-  // 构建全部工作表的数据字典
-  const sheets: Record<string, any[]> = {};
-  for (const name of sheetNames) {
-    const ws = workbook.Sheets[name];
-    sheets[name] = ws
-      ? (XLSX.utils.sheet_to_json(ws, sheetToJsonOpts) as any[]).map(cleanRow)
-      : [];
-  }
-
   // 确定当前主工作表
   let currentSheetName = sheetNames[0];
   if (typeof sheet === 'number') {
@@ -109,19 +100,84 @@ export async function parseExcel<T = any>(
     }
   }
 
+  // 单表解析辅助函数
+  const parseSheetByName = (name: string): any[] => {
+    const ws = workbook.Sheets[name];
+    if (!ws) return [];
+    return (XLSX.utils.sheet_to_json(ws, sheetToJsonOpts) as any[]).map(cleanRow);
+  };
+
+  // 性能优化：按需懒加载工作表（若用户指定 sheet: 'all' 则全量解析，否则仅首选工作表立即解析，其余工作表在访问时延迟解析并缓存）
+  const loadedSheets: Record<string, any[]> = {};
+  loadedSheets[currentSheetName] = parseSheetByName(currentSheetName);
+
+  if (sheet === 'all') {
+    for (const name of sheetNames) {
+      if (!loadedSheets[name]) {
+        loadedSheets[name] = parseSheetByName(name);
+      }
+    }
+  }
+
+  const sheets: Record<string, any[]> = {};
+  for (const name of sheetNames) {
+    if (loadedSheets[name]) {
+      sheets[name] = loadedSheets[name];
+    } else {
+      let cached: any[] | null = null;
+      Object.defineProperty(sheets, name, {
+        enumerable: true,
+        configurable: true,
+        get() {
+          if (cached === null) {
+            cached = parseSheetByName(name);
+          }
+          return cached;
+        }
+      });
+    }
+  }
+
   // 提取主数据行
   let rows: any[] = sheets[currentSheetName] || [];
+  const currentWs = workbook.Sheets[currentSheetName];
 
-  // 应用 transformHeader 对列名进行转换
-  if (header !== false && (typeof transformHeader === 'function' || trim)) {
+  // 提取原始列名（支持数据行为空但存在表头单元格的边界情况）
+  let rawColumns: string[] = [];
+  if (Array.isArray(header)) {
+    rawColumns = header.map(String);
+  } else if (header !== false) {
+    if (rows.length > 0 && typeof rows[0] === 'object' && !Array.isArray(rows[0])) {
+      rawColumns = Object.keys(rows[0]);
+    } else if (currentWs && currentWs['!ref']) {
+      // 当表格只有表头但没有数据行时，从 Worksheet 第 1 行提取列名
+      const headerRows = XLSX.utils.sheet_to_json(currentWs, { header: 1 }) as any[][];
+      if (headerRows.length > 0 && Array.isArray(headerRows[0])) {
+        rawColumns = headerRows[0].map((c) => String(c ?? ''));
+      }
+    }
+  }
+
+  // 预先计算转换后的列名字典与列表（性能优化：避免在数十万行循环中重复调用 transformHeader）
+  const headerMap = new Map<string, string>();
+  const columns: string[] = [];
+
+  rawColumns.forEach((colKey, colIdx) => {
+    let newKey = trim ? colKey.trim() : colKey;
+    if (typeof transformHeader === 'function') {
+      newKey = transformHeader(newKey, colIdx);
+    }
+    headerMap.set(colKey, newKey);
+    columns.push(newKey);
+  });
+
+  // 应用表头转换到各行数据
+  if (header !== false && headerMap.size > 0 && (typeof transformHeader === 'function' || trim)) {
     rows = rows.map((row) => {
       if (typeof row === 'object' && row !== null && !Array.isArray(row)) {
         const newObj: Record<string, any> = {};
         for (const [key, val] of Object.entries(row)) {
-          let newKey = trim ? key.trim() : key;
-          if (typeof transformHeader === 'function') {
-            newKey = transformHeader(newKey, 0);
-          }
+          const newKey = headerMap.get(key) ?? (trim ? key.trim() : key);
           newObj[newKey] = val;
         }
         return newObj;
@@ -144,14 +200,6 @@ export async function parseExcel<T = any>(
       }
       return row;
     });
-  }
-
-  // 提取列名
-  let columns: string[] = [];
-  if (Array.isArray(header)) {
-    columns = header;
-  } else if (header !== false && rows.length > 0 && typeof rows[0] === 'object' && !Array.isArray(rows[0])) {
-    columns = Object.keys(rows[0]);
   }
 
   const fullCount = rows.length;

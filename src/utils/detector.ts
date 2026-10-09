@@ -127,11 +127,22 @@ export async function detectFileType(
 
     if (trimmed.startsWith('{') || trimmed.startsWith('[')) {
       try {
-        const fullText = typeof input === 'string' ? input.trim() : trimmed;
+        const fullText =
+          typeof input === 'string'
+            ? input.trim()
+            : bytes.length <= previewLen
+            ? trimmed
+            : new TextDecoder('utf-8', { fatal: false }).decode(bytes).trim();
         JSON.parse(fullText);
         return 'json';
       } catch {
-        // Not valid JSON, continue
+        // 对于超大或被截断的 JSON 文本，进行结构特征兜底识别
+        if (trimmed.startsWith('{') && (trimmed.includes('":') || trimmed.includes('": '))) {
+          return 'json';
+        }
+        if (trimmed.startsWith('[') && (trimmed.includes('{') || trimmed.includes('",') || trimmed.includes('",\n'))) {
+          return 'json';
+        }
       }
     }
 

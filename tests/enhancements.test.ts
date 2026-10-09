@@ -107,4 +107,91 @@ describe('Advanced Optimizations & Edge Cases', () => {
     expect(resExcel.columns).toEqual(['user_id']);
     expect(resExcel.rows[0]).toEqual({ user_id: 99 });
   });
+
+  it('should pass accurate column index to transformHeader in Excel', async () => {
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([
+      ['first', 'second', 'third'],
+      [1, 2, 3]
+    ]);
+    XLSX.utils.book_append_sheet(wb, ws, 'IdxSheet');
+    const bytes = new Uint8Array(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }));
+
+    const res = await parse(bytes, {
+      transformHeader: (h, idx) => `${h}_${idx}`
+    });
+
+    expect(res.columns).toEqual(['first_0', 'second_1', 'third_2']);
+    expect(res.rows[0]).toEqual({ first_0: 1, second_1: 2, third_2: 3 });
+  });
+
+  it('should extract columns even if Excel sheet has headers but zero data rows', async () => {
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.aoa_to_sheet([['ColumnA', 'ColumnB', 'ColumnC']]);
+    XLSX.utils.book_append_sheet(wb, ws, 'EmptyData');
+    const bytes = new Uint8Array(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }));
+
+    const res = await parse(bytes);
+
+    expect(res.type).toBe('excel');
+    expect(res.columns).toEqual(['ColumnA', 'ColumnB', 'ColumnC']);
+    expect(res.total).toBe(0);
+    expect(res.rows).toEqual([]);
+  });
+
+  it('should support lazy loading of non-primary sheets in Excel', async () => {
+    const wb = XLSX.utils.book_new();
+    const ws1 = XLSX.utils.json_to_sheet([{ a: 1 }]);
+    const ws2 = XLSX.utils.json_to_sheet([{ b: 2 }]);
+    XLSX.utils.book_append_sheet(wb, ws1, 'Sheet1');
+    XLSX.utils.book_append_sheet(wb, ws2, 'Sheet2');
+    const bytes = new Uint8Array(XLSX.write(wb, { type: 'array', bookType: 'xlsx' }));
+
+    const res = await parse(bytes); // defaults to Sheet1
+
+    expect(res.currentSheet).toBe('Sheet1');
+    expect(res.rows).toEqual([{ a: 1 }]);
+    // Lazy property access on Sheet2
+    expect(res.sheets?.Sheet2).toEqual([{ b: 2 }]);
+    expect(Object.keys(res.sheets || {})).toEqual(['Sheet1', 'Sheet2']);
+  });
+
+  it('should support custom string array header for CSV input', async () => {
+    const rawCsv = '100,Bob,Active\n200,Charlie,Pending';
+    const res = await parse(rawCsv, {
+      type: 'csv',
+      header: ['uid', 'uname', 'ustatus']
+    });
+
+    expect(res.type).toBe('csv');
+    expect(res.columns).toEqual(['uid', 'uname', 'ustatus']);
+    expect(res.total).toBe(2);
+    expect(res.rows).toEqual([
+      { uid: 100, uname: 'Bob', ustatus: 'Active' },
+      { uid: 200, uname: 'Charlie', ustatus: 'Pending' }
+    ]);
+  });
+
+  it('should detect large JSON buffer exceeding 4KB preview size', async () => {
+    const largeList = Array.from({ length: 250 }, (_, i) => ({
+      index: i,
+      uuid: `item-uuid-${i}-padding-string-to-make-it-long`,
+      timestamp: Date.now()
+    }));
+    const jsonStr = JSON.stringify(largeList);
+    const buf = Buffer.from(jsonStr, 'utf-8');
+    expect(buf.length).toBeGreaterThan(4096);
+
+    const res = await parse(buf);
+
+    expect(res.type).toBe('json');
+    expect(res.total).toBe(250);
+    expect(res.columns).toEqual(['index', 'uuid', 'timestamp']);
+    expect(res.rows[0].index).toBe(0);
+  });
+
+  it('should throw friendly descriptive error when JSON is invalid in textMode: json', async () => {
+    const brokenJson = '{ "name": "Broken", ';
+    await expect(parse(brokenJson, { textMode: 'json' })).rejects.toThrow('无法解析 JSON 文件内容');
+  });
 });
