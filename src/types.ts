@@ -15,6 +15,106 @@ export type FileInput =
 export type FileType = 'excel' | 'csv' | 'text' | 'json';
 
 /**
+ * 列级校验规则
+ */
+export interface ColumnRule {
+  /** 是否必填（不能为 null、undefined 或空白字符串） */
+  required?: boolean;
+
+  /** 期望的数据类型 */
+  type?: 'string' | 'number' | 'boolean' | 'date' | 'email';
+
+  /** 最小值（数字）或最小长度（字符串/数组） */
+  min?: number;
+
+  /** 最大值（数字）或最大长度（字符串/数组） */
+  max?: number;
+
+  /** 枚举可选值白名单 */
+  enum?: any[];
+
+  /** 正则表达式校验 */
+  pattern?: RegExp;
+
+  /** 自定义校验函数，返回 false 或错误信息字符串表示校验失败 */
+  custom?: (value: any, row: any, index: number) => boolean | string | void;
+
+  /** 校验失败时的自定义提示文案 */
+  message?: string;
+}
+
+/**
+ * 声明式列名校验规则字典：{ 列名: 校验规则 }
+ */
+export type SchemaMap = Record<string, ColumnRule>;
+
+/**
+ * 行级自定义校验函数
+ */
+export type RowValidator<T = any> = (
+  row: T,
+  index: number
+) => ValidationError[] | string | boolean | void;
+
+/**
+ * 兼容 Zod 等规范库的 Schema 结构（带有 .safeParse 方法）
+ */
+export interface ZodLikeSchema {
+  safeParse: (data: any) => {
+    success: boolean;
+    error?: {
+      issues: Array<{ path: Array<string | number>; message: string }>;
+    };
+  };
+}
+
+/**
+ * 统一 Schema 校验器类型（支持声明式规则字典、行级校验回调或 Zod Schema）
+ */
+export type ValidationSchema<T = any> = SchemaMap | RowValidator<T> | ZodLikeSchema;
+
+/**
+ * 校验失败时的处理模式：
+ * - 'collect': (默认) 收集所有错误至 result.errors，解析不中断，保留全部数据行
+ * - 'abort': 遇到首个校验错误立即中断并抛出异常
+ * - 'filter': 自动剔除校验不通过的无效行，result.rows 仅保留合规数据
+ */
+export type ValidationMode = 'collect' | 'abort' | 'filter';
+
+/**
+ * 校验错误结构化报告
+ */
+export interface ValidationError {
+  /** 数据行序号（1-based，从 1 开始） */
+  row: number;
+  /** 物理文件行号（例如带表头时，首条数据在 Excel/CSV 中实际为第 2 行） */
+  physicalRow: number;
+  /** 发生错误的列名 */
+  column?: string;
+  /** 错误单元格的原始值 */
+  value?: any;
+  /** 错误提示描述 */
+  message: string;
+  /** 触发的规则类型 ('required' | 'type' | 'min' | 'max' | 'enum' | 'pattern' | 'custom' | 'zod') */
+  rule?: string;
+}
+
+/**
+ * 校验执行结果
+ */
+export interface ValidationResult<T = any> {
+  validRows: T[];
+  invalidRows: Array<{
+    row: number;
+    physicalRow: number;
+    data: T;
+    errors: ValidationError[];
+  }>;
+  errors: ValidationError[];
+  isValid: boolean;
+}
+
+/**
  * 数据加载或下载进度信息
  */
 export interface ParseProgress {
@@ -163,6 +263,17 @@ export interface ParseOptions {
    * 转换每个单元格值的函数
    */
   transform?: (value: any, field: string | number) => any;
+
+  /**
+   * 数据校验规则配置（支持声明式规则字典、行级校验回调或兼容 Zod 的 Schema）
+   */
+  schema?: ValidationSchema;
+
+  /**
+   * 校验处理模式：'collect'(默认全量收集) | 'abort'(遇错阻断) | 'filter'(过滤剔除坏数据)
+   * @default 'collect'
+   */
+  validationMode?: ValidationMode;
 }
 
 /**
@@ -185,6 +296,8 @@ export interface ParseMeta {
   sheetNames?: string[];
   /** 当前工作表名称 (Excel) */
   currentSheet?: string;
+  /** 校验错误列表 (当存在校验错误时) */
+  errors?: ValidationError[];
   /** 其它扩展信息或警告 */
   [key: string]: any;
 }
@@ -245,6 +358,26 @@ export interface ParseResult<T = any> {
    * 详细元数据
    */
   meta: ParseMeta;
+
+  /**
+   * 结构化数据校验错误报告列表（仅当配置了 schema 且存在校验不通过的单元格时生成）
+   */
+  errors?: ValidationError[];
+
+  /**
+   * 数据是否全部通过校验（当配置了 schema 时生效，true 表示 0 错误）
+   */
+  isValid?: boolean;
+
+  /**
+   * 校验失败被剔除的无效数据行列表（当 validationMode === 'filter' 时生成）
+   */
+  invalidRows?: Array<{
+    row: number;
+    physicalRow: number;
+    data: T;
+    errors: ValidationError[];
+  }>;
 
   /**
    * 原始内容 (原始 buffer 或 text)

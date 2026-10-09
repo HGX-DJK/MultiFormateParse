@@ -1,6 +1,7 @@
 import Papa from 'papaparse';
-import { FileInput, ParseOptions, ParseResult } from '../types';
+import { FileInput, ParseOptions, ParseResult, ValidationError } from '../types';
 import { getInputInfo, toText } from '../utils/input';
+import { applyValidation } from '../utils/validator';
 
 /**
  * 生产级安全动态类型转换（防止超长整数精度丢失与前导 0 丢失）
@@ -146,6 +147,12 @@ export async function parseCsv<T = any>(
     columns = parsed.meta.fields;
   }
 
+  // 生产级数据校验引擎执行
+  const validationRes = applyValidation<T>(rows, options);
+  if (options.validationMode === 'filter') {
+    rows = validationRes.validRows;
+  }
+
   // 支持逐行回调 onRow，若返回 false 则提前截断
   if (typeof onRow === 'function') {
     for (let i = 0; i < rows.length; i++) {
@@ -164,7 +171,8 @@ export async function parseCsv<T = any>(
     rowCount: rows.length,
     columns,
     delimiter: parsed.meta.delimiter,
-    errors: parsed.errors.length > 0 ? parsed.errors : undefined
+    errors: validationRes.errors.length > 0 ? validationRes.errors : undefined,
+    csvErrors: parsed.errors.length > 0 ? parsed.errors : undefined
   };
 
   return {
@@ -174,6 +182,9 @@ export async function parseCsv<T = any>(
     total: rows.length,
     type: 'csv',
     text: rawText,
+    errors: options.schema ? validationRes.errors : undefined,
+    isValid: options.schema ? validationRes.isValid : undefined,
+    invalidRows: options.schema && options.validationMode === 'filter' ? validationRes.invalidRows : undefined,
     meta,
     raw: rawText
   };

@@ -154,6 +154,8 @@ const result = await parse(file, {
 | `onProgress` | `(progress: ParseProgress) => void` | - | 数据读取/下载实时进度回调 |
 | `onRow` | `(row: any, index: number) => void \| boolean` | - | 逐行处理回调，返回 `false` 可提前终止后续解析 |
 | `preview` | `number` | - | 快速预览：只解析并返回前 N 行数据（大文件提速神器） |
+| `schema` | `SchemaMap \| Function \| ZodLike` | - | 数据校验规则表（支持声明式规则字典、行级校验函数或 Zod） |
+| `validationMode` | `'collect' \| 'abort' \| 'filter'` | `'collect'` | 校验处理模式：`'collect'`(全量收集错误) \| `'abort'`(遇错即中断) \| `'filter'`(过滤剔除坏数据) |
 | `transformHeader`| `(header: string, index: number) => string` | - | 转换/清洗表头列名（Excel 与 CSV 均支持） |
 | `transform` | `(value: any, field: string \| number) => any` | - | 转换/清洗每个单元格数值 |
 | `fileName` | `string` | - | 传入二进制 ArrayBuffer / Buffer 时，可用于辅助推断文件格式 |
@@ -177,11 +179,37 @@ Windows Office Excel 导出的 CSV 文件通常为 ANSI / GBK 编码，传统解
 - 带前导 0 的编码（如 `'01234'`）保持为 `string`；
 - 普通数值与浮点数正常转为 `number`，确保核心业务数据万无一失。
 
-### 3. 防 OOM 资源阻断与请求取消 (`AbortSignal`)
+### 3. 企业级数据校验引擎（Schema Validation & 行级错误精确定位）
+在数据导入业务中，解析后通常需要对每行进行严格的业务规则校验。本库**原生内置轻量声明式规则校验**，零额外依赖，同时全面兼容 **Zod** 或自定义校验函数：
+- **精准行列定位**：返回物理文件真实行号（`physicalRow`，对应 Excel/CSV 中肉眼可见的行数）、列名、非法值与错误提示；
+- **多种错误策略**：
+  - `'collect'` (默认)：收集所有错误至 `res.errors`，不中断执行；
+  - `'abort'`：遇到首个校验错误立即阻断并抛错；
+  - `'filter'`：自动剔除不合规的坏数据，`res.rows` 仅保留合规数据，坏数据存入 `res.invalidRows`；
+
+```typescript
+const res = await parse(file, {
+  validationMode: 'filter', // 自动过滤坏行
+  schema: {
+    name: { required: true },
+    age: { type: 'number', min: 18, message: '必须年满18周岁' },
+    email: { type: 'email', message: '邮箱格式不正确' },
+    role: { enum: ['admin', 'user'], message: '角色必须是 admin 或 user' }
+  }
+});
+
+if (!res.isValid) {
+  console.table(res.errors); // 结构化错误清单，便于在 UI 上红字高亮
+  console.log('清洗后的合规数据:', res.rows);
+  console.log('被拦截的坏数据:', res.invalidRows);
+}
+```
+
+### 4. 防 OOM 资源阻断与请求取消 (`AbortSignal`)
 - **`maxFileSize` 防护**：在读取流、Buffer 或发起网络请求时即时校验，防止恶意上传数百兆超大文件压垮 Node.js 进程或卡死浏览器。
 - **`signal: AbortSignal`**：完美联动浏览器的 `AbortController`，在弹窗关闭或用户取消时立即中断底层网络传输。
 
-### 4. 零 DOM 依赖，天然支持 Web Worker
+### 5. 零 DOM 依赖，天然支持 Web Worker
 整个核心库代码严格实现无 DOM / 视窗依赖（零 `window` / `document` 强绑定）。在处理数十万行复杂表格时，可直接将其移入 Web Worker 中后台执行，彻底告别浏览器主线程卡顿与 UI 白屏。
 
 ---

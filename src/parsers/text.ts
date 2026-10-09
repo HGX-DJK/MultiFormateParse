@@ -1,5 +1,6 @@
 import { FileInput, ParseOptions, ParseResult } from '../types';
 import { getInputInfo, toText } from '../utils/input';
+import { applyValidation } from '../utils/validator';
 
 /**
  * 解析纯文本文件（TXT、日志、配置、JSON 等）
@@ -140,6 +141,12 @@ export async function parseText<T = any>(
     rows = rows.map((r, idx) => transform(r, idx));
   }
 
+  // 生产级数据校验引擎执行
+  const validationRes = applyValidation<T>(rows, options);
+  if (options.validationMode === 'filter') {
+    rows = validationRes.validRows;
+  }
+
   // 支持逐行回调 onRow，若返回 false 则提前截断
   if (typeof onRow === 'function') {
     for (let i = 0; i < rows.length; i++) {
@@ -162,7 +169,8 @@ export async function parseText<T = any>(
     fileSize: inputInfo.fileSize ?? rawText.length,
     rowCount: rows.length,
     columns,
-    textMode
+    textMode,
+    errors: validationRes.errors.length > 0 ? validationRes.errors : undefined
   };
 
   return {
@@ -172,6 +180,9 @@ export async function parseText<T = any>(
     total: rows.length,
     type: fileType,
     text: rawText,
+    errors: options.schema ? validationRes.errors : undefined,
+    isValid: options.schema ? validationRes.isValid : undefined,
+    invalidRows: options.schema && options.validationMode === 'filter' ? validationRes.invalidRows : undefined,
     meta,
     raw: rawText
   };

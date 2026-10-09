@@ -1,6 +1,7 @@
 import * as XLSX from 'xlsx';
 import { FileInput, ParseOptions, ParseResult } from '../types';
 import { getInputInfo, toUint8Array } from '../utils/input';
+import { applyValidation } from '../utils/validator';
 
 /**
  * 确保每行数据为纯粹的 JavaScript 对象，剔除 SheetJS 的隐藏非枚举属性
@@ -206,6 +207,12 @@ export async function parseExcel<T = any>(
     });
   }
 
+  // 生产级数据校验引擎执行
+  const validationRes = applyValidation<T>(rows, options);
+  if (options.validationMode === 'filter') {
+    rows = validationRes.validRows;
+  }
+
   // 支持逐行回调 onRow，若返回 false 则提前截断
   if (typeof onRow === 'function') {
     for (let i = 0; i < rows.length; i++) {
@@ -232,7 +239,8 @@ export async function parseExcel<T = any>(
     totalRows: fullCount,
     columns,
     sheetNames,
-    currentSheet: currentSheetName
+    currentSheet: currentSheetName,
+    errors: validationRes.errors.length > 0 ? validationRes.errors : undefined
   };
 
   return {
@@ -244,6 +252,9 @@ export async function parseExcel<T = any>(
     sheets,
     currentSheet: currentSheetName,
     sheetNames,
+    errors: options.schema ? validationRes.errors : undefined,
+    isValid: options.schema ? validationRes.isValid : undefined,
+    invalidRows: options.schema && options.validationMode === 'filter' ? validationRes.invalidRows : undefined,
     meta,
     raw: bytes
   };
